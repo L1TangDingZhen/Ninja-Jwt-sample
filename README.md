@@ -1,0 +1,1 @@
+I did not see any sample of ninja-jwt-sample code, tutorial shows code but does not tell where to write the code. This is the code i write, an example, combination of django, ninja and jwt token function. Hope help anyone who need. 
