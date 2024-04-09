@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+
 from ninja import NinjaAPI
 from back.scheme import User, NoMessage, LoginSuccess
 from back.models import user
@@ -8,7 +9,15 @@ from ninja.errors import HttpError
 from jose import jwt
 from ninja_jwt.controller import NinjaJWTDefaultController
 from ninja_extra import NinjaExtraAPI
+# config.py
+import os
+import secrets
+import string
+
+
 # from config import JWT_SECRET_KEY
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 43200
+
 
 class GlobalAuth(HttpBearer):
     def authenticate(self, request, token):
@@ -21,13 +30,7 @@ api = NinjaExtraAPI() #多出来一个token验证类
 api.register_controllers(NinjaJWTDefaultController)
 
 
-
-
-# config.py
-import os
-import secrets
-import string
-
+# 生成一个随机字符串作为密钥
 alphabet = string.ascii_letters + string.digits
 secret_key = ''.join(secrets.choice(alphabet) for i in range(32))
 
@@ -59,10 +62,29 @@ class AuthBearer(HttpBearer):
         try:
             payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
             username = payload["sub"]
-            return username
+            exp = payload["exp"]
+            if datetime.utcnow() < datetime.utcfromtimestamp(exp):
+                return username
+            else:
+                # 如果令牌已过期，生成一个新的令牌
+                new_exp = datetime.utcnow() + timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+                new_token = jwt.encode({"sub": username, "exp": new_exp}, JWT_SECRET_KEY, algorithm="HS256")
+                request.headers["Authorization"] = f"Bearer {new_token}"
+                return username
         except jwt.JWTError:
-            raise HttpError(401, "Invalid or expired token")
+            raise HttpError(401, "Invalid token")
 
+# @api.post('/refresh_token', response={200: LoginSuccess}, auth=AuthBearer())
+# def refresh_token(request):
+#     try:
+#         payload = jwt.decode(request.auth, JWT_SECRET_KEY, algorithms=["HS256"])
+#         username = payload["sub"]
+#         expire = datetime.utcnow() + timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+#         new_token = jwt.encode({"sub": username, "exp": expire}, JWT_SECRET_KEY, algorithm="HS256")
+#         return {"username": username, "token": new_token}
+#     except jwt.JWTError:
+#         raise HttpError(401, "Invalid or expired token")
+    
 
 
 @api.post('/register', response={201: User}, auth=None)
@@ -77,7 +99,8 @@ def register(request, info: User):
 @api.post('/login', response={200: LoginSuccess}, auth=None)
 def login(request, info: User):
     if user.objects.filter(username=info.username, password=info.password).exists():
-        token = jwt.encode({"sub": info.username}, JWT_SECRET_KEY, algorithm="HS256")
+        expire = datetime.utcnow() + timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+        token = jwt.encode({"sub": info.username, "exp": expire}, JWT_SECRET_KEY, algorithm="HS256")
         return {"username": info.username, "token": token}
     return 401, {"message": "username or password is wrong"}
 
